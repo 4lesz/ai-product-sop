@@ -1,0 +1,37 @@
+# 放到项目的 .github/workflows/sop-check.yml。
+# 每次推送和提 PR 时检查：改了代码有没有交接条目、清单编号有没有被删改、验收记录有没有被改。
+# 打正式版标签（v 开头、不含 preview）时，再检查最新的变更有没有通过的独立验收。
+# 不管改代码的是 Claude、Trae 还是 WorkBuddy，都要过这一关。
+name: SOP 检查
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+
+jobs:
+  sop-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 检查本次推送的改动
+        if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/') && github.event.before != '0000000000000000000000000000000000000000'
+        run: node scripts/sop-check.mjs --range "${{ github.event.before }}..${{ github.sha }}"
+
+      - name: 检查 PR 的改动
+        if: github.event_name == 'pull_request'
+        run: node scripts/sop-check.mjs --range "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+
+      - name: 正式版发布前检查
+        if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, 'preview')
+        run: node scripts/sop-check.mjs --release
+
+      # 项目自己的测试命令加在这里，例如：
+      # - run: npm ci && npm test

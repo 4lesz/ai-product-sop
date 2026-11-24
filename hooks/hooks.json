@@ -1,0 +1,35 @@
+{
+  "description": "ai-product-sop 硬性检查：打开项目时提醒规矩；AI 改了代码却没写交接条目时提醒它（真正的关卡在 git 提交）；验收子代理只能写验收记录。不是 SOP 项目时什么都不做。",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/sop-hook.mjs", "session-start"], "timeout": 30 }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/sop-hook.mjs", "prompt-submit"], "timeout": 20 }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/sop-hook.mjs", "stop"], "timeout": 60 }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash",
+        "hooks": [
+          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/sop-hook.mjs", "pre-tool"], "timeout": 20 }
+        ]
+      }
+    ]
+  }
+}

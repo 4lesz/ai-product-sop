@@ -1,0 +1,14 @@
+{
+  "name": "ai-product-sop",
+  "owner": {
+    "name": "4lesz"
+  },
+  "description": "AI 协作产品开发 SOP：让 AI 像产品团队一样从需求做到上线。",
+  "plugins": [
+    {
+      "name": "ai-product-sop",
+      "source": "./",
+      "description": "AI 协作产品开发 SOP：需求、PRD、方案决策、执行与验收标准、开发、独立验收、发布、交接。"
+    }
+  ]
+}
