@@ -63,12 +63,14 @@ git config core.hooksPath .githooks
 
 **Claude Code（推荐）**
 
-把这个文件夹放到任意位置（或推到一个 Git 仓库），在 Claude Code 里：
+在 Claude Code 里：
 
 ```
-/plugin marketplace add <这个文件夹的路径或 Git 仓库地址>
+/plugin marketplace add 4lesz/ai-product-sop
 /plugin install ai-product-sop@ai-product-sop
 ```
+
+也可以把仓库克隆到本地，用 `/plugin marketplace add <本地文件夹路径>` 安装。
 
 **只用其中几个 skill / 用在其他 AI 工具**
 
