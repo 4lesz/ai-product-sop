@@ -2,6 +2,10 @@
 
 一个人当产品负责人、让 AI 当开发团队，也能把产品从想法做到上线。这个插件把这套做法拆成 9 个 skill 和 1 个验收子代理，装上以后，AI 会按固定流程追问需求、写 PRD、列决定点、定标准、小步开发、独立验收、发布和交接。
 
+- 版本：0.6.0（改动见 [CHANGELOG.md](CHANGELOG.md)）
+- 许可证：MIT
+- 运行要求：检查脚本和钩子需要 Node.js 18 以上；Claude Code 需要支持插件钩子的版本，建议用最新版（在 2.1.322 上测过）
+
 内容来自三个实际项目：
 
 | 项目 | 是什么 | 用到的重点 |
@@ -23,9 +27,9 @@
 | 步 | skill | 产出 |
 | --- | --- | --- |
 | 入口 | `sop-start` | 判断在哪一步、搭项目骨架、全局铁律 |
-| 1 | `sop-discover` | `docs/需求简报.md`（内容型产品加 `knowledge/`） |
-| 2 | `sop-prd` | `docs/PRD.md`；中途改需求也走这里 |
-| 3 | `sop-spec` | `docs/specs/<阶段>/spec.md`、决定点、`docs/设计规范.md`（附风格方向样例和界面底线） |
+| 1 | `sop-discover` | `docs/需求简报.md`：有哪几类角色、上下游关系、目标、不做什么（内容型产品加 `knowledge/`） |
+| 2 | `sop-prd` | `docs/PRD.md`：功能编号、分端、权限表；中途改需求也走这里 |
+| 3 | `sop-spec` | `docs/specs/<阶段>/spec.md`、决定点（含分几个端）、`docs/设计规范.md`（附风格方向样例和界面底线） |
 | 4 | `sop-standards` | `docs/执行标准.md`、`验收原则.md`、`验收清单.md`，以及项目专属的开发 / 验收 skill |
 | 5 | `sop-develop` | 代码 + 交接条目（7 项必做） |
 | 6 | `sop-accept` + 子代理 `sop-acceptance-reviewer` | `docs/验收记录/YS-*.md` |
@@ -42,7 +46,7 @@ skill 只是说明书，AI 可能跳步。插件另外带了三道机器检查�
 | --- | --- | --- | --- |
 | Claude Code 钩子（`hooks/hooks.json`，装插件即生效） | 打开项目时 | 不拦，把规矩和交接文档的当前状态告诉 AI | Claude Code |
 | | AI 每结束一轮（只在这一轮动过文件时） | 改了代码却没写交接条目、条目缺内容、删改清单编号、改已有验收记录 → 默认只提醒 AI，不拦（`.sop.json` 的 `stopHook` 可改成 `block` 拦下或 `off` 关掉） | Claude Code |
-| | 验收子代理写文件或跑 git 时 | 写验收记录以外的文件、提交代码 → 直接拒绝 | Claude Code |
+| | 验收子代理写文件或跑命令时 | 写验收记录以外的文件（Write、Bash / PowerShell 里的重定向、rm、cp、Set-Content 等常见写法）、git 提交和改动记录 → 直接拒绝。子代理本身也没有编辑工具 | Claude Code |
 | git 提交钩子（`.githooks/pre-commit`） | 每次 `git commit` | 同上，另外"进行中"的条目不许提交 | 所有工具（Claude、Trae、WorkBuddy、人） |
 | CI（`templates/github-sop-check.yml`） | 每次推送、PR；打正式版标签 | 同上；正式版还要求最新变更有通过的验收记录 | 所有工具 |
 
@@ -53,7 +57,11 @@ node <插件目录>/scripts/sop-check.mjs init
 git config core.hooksPath .githooks
 ```
 
-文档名和默认不同的老项目，改 `.sop.json` 里的路径即可。
+文档名和默认不同的老项目，改 `.sop.json` 里的路径即可；清单和 PRD 沿用自己编号（例如 `AC-1`、`FR-01`）的，再改 `checklistIdPattern`、`prdIdPattern`。认不出编号时检查脚本会提醒，不会悄悄失效。
+
+`init` 不会覆盖已有的提交钩子：`.githooks/pre-commit` 已存在就先备份成 `pre-commit.bak`；项目原来用 `.git/hooks/` 或 husky 时，会提示怎么合并。
+
+验收子代理的拦截是兜底，不是沙箱：用 `node -e`、Python 这类脚本直接写文件拦不住。真正的关卡是 git 提交前的检查。
 
 为了不让交接文档越写越长：只改文档不用写交接条目；小改动（不改规则、数据结构、接口和用户流程）只写一条两项的短条目，当天的合并在一起；变更记录超过 20 条时检查脚本会提醒把旧条目挪到 `docs/交接归档/`。不是 SOP 项目（没有 `.sop.json` 也没有 `docs/交接文档.md`）时，钩子什么都不做。
 
@@ -80,7 +88,7 @@ git config core.hooksPath .githooks
 - Trae：复制到 `.trae/skills/`
 - 其他支持 `AGENTS.md` 的工具：复制到项目里，在 `AGENTS.md` 写明"按 `skills/sop-start/SKILL.md` 的流程做"
 
-skill 之间用相对路径互相引用（例如 `../sop-standards/references/...`），所以请整个 `skills/` 目录一起复制。
+skill 之间用相对路径互相引用（例如 `../sop-standards/references/...`），所以请整个 `skills/` 目录一起复制；要用检查脚本的，把 `scripts/` 也复制到 `skills/` 旁边（例如 `.claude/skills/` 配 `.claude/scripts/`），skill 里写的 `../../scripts/sop-check.mjs` 才能找到。Claude Code 钩子和验收子代理只有用插件方式安装才生效。
 
 ## 怎么开始
 

@@ -33,6 +33,9 @@ const DEFAULTS = {
   stopHook: 'remind',
   inProgressWords: ['进行中'],
   acceptedConclusions: ['通过', '有条件通过'],
+  // 清单和 PRD 的编号怎么认：逐行匹配的正则，第一个括号是编号。老项目沿用 AC-1、FR-01 这类编号时改这两项
+  checklistIdPattern: '^\\|\\s*(\\d+\\.\\d+)\\s*\\|',
+  prdIdPattern: '^\\|\\s*(F\\d{2,})\\b',
   // 不算"代码"的路径（前缀匹配；以 * 开头的是后缀匹配）
   nonCode: ['docs/', 'knowledge/', '.claude/', '.trae/', '.agents/', '.githooks/', '.sop.json', 'scripts/sop-check.mjs', '.github/workflows/sop-check.yml', '*.md', '*.txt', '.gitignore', '.gitattributes'],
   // 填了就只把这些前缀算作代码（比 nonCode 优先）
@@ -156,25 +159,25 @@ function parseEntries(text) {
   return entries;
 }
 
-// 清单条目编号：表格第一列形如 1.2 / 19.3
-function checklistIds(text) {
+// 清单 / PRD 编号：默认清单是表格第一列的 1.2 / 19.3，PRD 是 F01；.sop.json 的 checklistIdPattern / prdIdPattern 可改
+function idRegex(key) {
+  try { return new RegExp(cfg[key]); }
+  catch (e) { err('config', `.sop.json 的 ${key} 不是合法的正则：${e.message}。先按默认格式检查。`); return new RegExp(DEFAULTS[key]); }
+}
+const checklistRe = idRegex('checklistIdPattern');
+const prdRe = idRegex('prdIdPattern');
+function idsBy(re, text) {
   if (!text) return [];
   const ids = [];
   for (const l of text.replace(/\r\n/g, '\n').split('\n')) {
-    const m = l.match(/^\|\s*(\d+\.\d+)\s*\|/);
-    if (m) ids.push(m[1]);
+    const m = l.match(re);
+    const id = m && (m[1] ?? m[0]).trim();
+    if (id) ids.push(id);
   }
   return ids;
 }
-function prdIds(text) {
-  if (!text) return [];
-  const ids = [];
-  for (const l of text.replace(/\r\n/g, '\n').split('\n')) {
-    const m = l.match(/^\|\s*(F\d{2,})\b/);
-    if (m) ids.push(m[1]);
-  }
-  return ids;
-}
+const checklistIds = (text) => idsBy(checklistRe, text);
+const prdIds = (text) => idsBy(prdRe, text);
 const dups = (arr) => [...new Set(arr.filter((x, i) => arr.indexOf(x) !== i))];
 
 // 编号里带"日期-序号"（如 KF-20261124-02）时按它找最新的；否则取最上面那条
@@ -187,9 +190,17 @@ function latestEntry(entries) {
 // ---------- 规则 ----------
 function staticChecks() {
   const cl = readNow(cfg.checklist);
-  if (cl) { const d = dups(checklistIds(cl)); if (d.length) err('checklist-dup', `验收清单里有重复编号：${d.join('、')}。编号永不复用。`); }
+  if (cl) {
+    const ids = checklistIds(cl);
+    if (!ids.length && cl.includes('|')) warn('checklist-no-ids', `验收清单 ${cfg.checklist} 里没识别出任何编号，编号重复和删改检查不起作用。项目用自己的编号格式时，改 .sop.json 的 checklistIdPattern（现在是 ${cfg.checklistIdPattern}）。`);
+    const d = dups(ids); if (d.length) err('checklist-dup', `验收清单里有重复编号：${d.join('、')}。编号永不复用。`);
+  }
   const prd = readNow(cfg.prd);
-  if (prd) { const d = dups(prdIds(prd)); if (d.length) err('prd-dup', `PRD 功能编号重复：${d.join('、')}。`); }
+  if (prd) {
+    const ids = prdIds(prd);
+    if (!ids.length && prd.includes('|')) warn('prd-no-ids', `PRD ${cfg.prd} 里没识别出任何功能编号，编号重复检查不起作用。项目用自己的编号格式时，改 .sop.json 的 prdIdPattern（现在是 ${cfg.prdIdPattern}）。`);
+    const d = dups(ids); if (d.length) err('prd-dup', `PRD 功能编号重复：${d.join('、')}。`);
+  }
   const entries = parseEntries(readNow(cfg.handoff));
   if (entries.length > 1 && latestEntry(entries) !== entries[0]) warn('entry-order', `交接文档"${cfg.changelogHeading}"里最新的条目 ${latestEntry(entries).id} 不在最上面。约定是最新的放最上面。`);
   if (cfg.maxEntries && entries.length > cfg.maxEntries) warn('handoff-long', `交接文档"${cfg.changelogHeading}"已经有 ${entries.length} 条，超过 ${cfg.maxEntries} 条。把较早的条目原样挪到 docs/交接归档/ 下（例如 变更记录-2026-10.md），交接文档里只留最近的，并写一句归档在哪。`);
@@ -303,10 +314,30 @@ function init() {
   const hookDir = path.join(root, '.githooks');
   fs.mkdirSync(hookDir, { recursive: true });
   const hook = path.join(hookDir, 'pre-commit');
-  fs.writeFileSync(hook, '#!/bin/sh\n# ai-product-sop：提交前检查是否照执行标准做完\nnode scripts/sop-check.mjs --staged || {\n  echo "";\n  echo "提交被拦下：按上面的提示补完再提交。确实要跳过时由产品负责人决定。";\n  exit 1;\n}\n');
+  const body = '#!/bin/sh\n# ai-product-sop：提交前检查是否照执行标准做完\nnode scripts/sop-check.mjs --staged || {\n  echo "";\n  echo "提交被拦下：按上面的提示补完再提交。确实要跳过时由产品负责人决定。";\n  exit 1;\n}\n';
+  const notes = [];
+  // 已有的 pre-commit 不能悄悄覆盖：内容不同就先备份
+  if (fs.existsSync(hook) && fs.readFileSync(hook, 'utf8').replace(/\r\n/g, '\n') !== body) {
+    let bak = `${hook}.bak`;
+    if (fs.existsSync(bak)) bak = `${hook}.bak-${new Date().toISOString().replace(/\D/g, '').slice(0, 14)}`;
+    fs.renameSync(hook, bak);
+    notes.push(`原来的 .githooks/pre-commit 已备份为 ${path.relative(root, bak).replace(/\\/g, '/')}。里面原有的检查还要跑的话，把它的内容合并进新的 pre-commit。`);
+  }
+  fs.writeFileSync(hook, body);
   try { fs.chmodSync(hook, 0o755); } catch {}
+  // 改 core.hooksPath 会让原来位置的钩子不再运行，先提醒
+  const current = git(['config', '--get', 'core.hooksPath'], { allowFail: true })?.trim();
+  if (current && norm(current).replace(/\/$/, '') !== '.githooks') {
+    notes.push(`项目已经把 git 钩子放在 ${current}（例如 husky）。不要再改 core.hooksPath，改了 ${current} 里的钩子就不跑了；把这一行加进 ${current}/pre-commit 即可：node scripts/sop-check.mjs --staged || exit 1`);
+  } else if (!current) {
+    const dotGitHooks = git(['rev-parse', '--git-path', 'hooks'], { allowFail: true })?.trim();
+    const old = dotGitHooks && path.resolve(root, dotGitHooks, 'pre-commit');
+    if (old && fs.existsSync(old)) notes.push(`${path.relative(root, old).replace(/\\/g, '/')} 里已经有提交钩子。执行下面的 git config 后它不再运行，要把它的内容合并进 .githooks/pre-commit。`);
+  }
   console.log('已写入：scripts/sop-check.mjs、.sop.json（已存在则不覆盖）、.githooks/pre-commit');
-  console.log('还差一步，让 git 用这个提交钩子：git config core.hooksPath .githooks');
+  notes.forEach((n) => console.log(`注意：${n}`));
+  if (current && norm(current).replace(/\/$/, '') === '.githooks') console.log('git 已经在用 .githooks，不用再配置。');
+  else if (!current) console.log('还差一步，让 git 用这个提交钩子：git config core.hooksPath .githooks');
 }
 
 // ---------- 主流程 ----------

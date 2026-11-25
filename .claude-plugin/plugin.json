@@ -1,6 +1,6 @@
 {
   "name": "ai-product-sop",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "一个人当产品负责人、AI 当开发团队的产品开发 SOP：确认需求 → PRD → 方案与决策 → 定标准 → 小步开发 → 独立验收 → 部署发布 → 交接。9 个 skill + 1 个验收子代理，从问问、畅投、日课三个项目的实际做法提炼。",
   "license": "MIT",
   "author": {
