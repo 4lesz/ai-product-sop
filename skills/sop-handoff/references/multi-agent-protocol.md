@@ -1,6 +1,6 @@
 # 多个 AI 工具协作约定（简化版）
 
-适合"Claude 开发、WorkBuddy 验收、Trae 修复"这类同时用几个 AI 工具的情况。从畅投的 `.agents/protocol.md` 简化而来。
+适合"Claude 开发、WorkBuddy 验收、Trae 修复"这类同时用几个 AI 工具的情况。
 
 ## 角色
 
